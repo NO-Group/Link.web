@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#04132b" />
+<title>Link — Dive into the Conversation</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2322d3ee' d='M12 2C12 2 4.5 10.2 4.5 15a7.5 7.5 0 0 0 15 0C19.5 10.2 12 2 12 2z'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Ambient ocean layers -->
+  <div class="ocean-bg" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <!-- ══════════════ PHASE 1 · AUTHENTICATION ══════════════ -->
+  <section id="auth-view" class="auth-view">
+    <div class="auth-card glass">
+      <div class="brand">
+        <div class="brand-drop">
+          <svg viewBox="0 0 24 24"><defs><linearGradient id="dg-a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path fill="url(#dg-a)" d="M12 2C12 2 4.5 10.2 4.5 15a7.5 7.5 0 0 0 15 0C19.5 10.2 12 2 12 2z"/><path fill="rgba(255,255,255,.6)" d="M9.3 13.6c.4 2 1.7 3.3 3.6 3.6.4.06.6-.36.25-.62-1.2-.9-2-1.85-2.55-3.15-.16-.37-1.36-.2-1.3.17z"/></svg>
+        </div>
+        <h1>Link</h1>
+      </div>
+      <p class="tagline">Messages that flow. A feed that spans the globe.</p>
+
+      <div class="auth-tabs">
+        <button id="tab-signin" class="auth-tab active" type="button">Sign in</button>
+        <button id="tab-signup" class="auth-tab" type="button">Create account</button>
+      </div>
+
+      <form id="auth-form" class="auth-form">
+        <div id="signup-extra" class="signup-extra hidden">
+          <input id="auth-username" class="input" type="text" placeholder="Username (e.g. yuna_seoul)" maxlength="20" autocomplete="off" />
+          <div class="field-row">
+            <select id="auth-native" class="input" aria-label="Native language"></select>
+            <select id="auth-learning" class="input" aria-label="Learning language"></select>
+          </div>
+        </div>
+        <input id="auth-email" class="input" type="email" placeholder="Email" required autocomplete="email" />
+        <input id="auth-password" class="input" type="password" placeholder="Password (6+ characters)" minlength="6" required autocomplete="current-password" />
+        <p id="auth-error" class="auth-error hidden"></p>
+        <button id="auth-submit" class="btn-primary" type="submit">Sign in</button>
+      </form>
+      <p class="auth-foot">One ocean. Every language. 🌊</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ APP SHELL ══════════════ -->
+  <div id="app-view" class="app hidden">
+
+    <aside class="sidebar glass">
+      <div class="brand brand-sm">
+        <div class="brand-drop">
+          <svg viewBox="0 0 24 24"><defs><linearGradient id="dg-b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path fill="url(#dg-b)" d="M12 2C12 2 4.5 10.2 4.5 15a7.5 7.5 0 0 0 15 0C19.5 10.2 12 2 12 2z"/></svg>
+        </div>
+        <h1>Link</h1>
+      </div>
+
+      <nav class="nav">
+        <button id="nav-messages" class="nav-btn active" type="button">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg></span>
+          <span>Messages</span>
+          <span id="nav-msg-badge" class="badge hidden"></span>
+        </button>
+        <button id="nav-feed" class="nav-btn" type="button">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span>Global Feed</span>
+        </button>
+      </nav>
+
+      <div class="side-spacer"></div>
+
+      <div class="side-profile">
+        <div id="side-avatar"></div>
+        <div class="side-meta">
+          <div id="side-username" class="side-username">@you</div>
+          <div id="side-tags" class="tags"></div>
+        </div>
+        <div class="side-actions">
+          <button id="btn-edit-profile" class="icon-btn" type="button" title="Edit profile" aria-label="Edit profile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+          </button>
+          <button id="btn-logout" class="icon-btn" type="button" title="Sign out" aria-label="Sign out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+
+      <!-- ══════════════ PHASE 2 · MESSAGING ENGINE ══════════════ -->
+      <section id="messages-view" class="messages-view">
+
+        <div class="contacts-pane glass">
+          <div class="contacts-head">
+            <h2>People</h2>
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input id="contact-search" class="input" type="text" placeholder="Search people…" autocomplete="off" />
+            </div>
+          </div>
+          <ul id="contact-list" class="contact-list"></ul>
+          <p id="contacts-empty" class="empty-note hidden">You're the first ripple — invite a friend to Link!</p>
+        </div>
+
+        <div class="chat-pane glass">
+          <div id="chat-empty" class="chat-empty">
+            <svg viewBox="0 0 24 24" fill="rgba(34,211,238,.14)" stroke="rgba(94,234,212,.65)" stroke-width="1.1"><path d="M12 2C12 2 4.5 10.2 4.5 15a7.5 7.5 0 0 0 15 0C19.5 10.2 12 2 12 2z"/></svg>
+            <h3>Pick someone to start a wave</h3>
+            <p>Realtime, person-to-person. No statuses, no noise.</p>
+          </div>
+
+          <header id="chat-header" class="chat-header hidden">
+            <button id="btn-back" class="icon-btn" type="button" title="Back to people" aria-label="Back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <div id="ch-avatar"></div>
+            <div class="ch-meta">
+              <div id="ch-name" class="ch-name"></div>
+              <div id="ch-tags" class="tags"></div>
+            </div>
+          </header>
+
+          <div id="chat-messages" class="chat-messages hidden"></div>
+
+          <form id="chat-form" class="chat-composer hidden">
+            <input id="chat-input" class="input" type="text" placeholder="Send a message…" autocomplete="off" maxlength="2000" />
+            <button id="chat-send" class="send-btn" type="submit" title="Send" aria-label="Send">
+              <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4l17.45-7.48a1 1 0 0 0 0-1.84L3.4 3.6a.993.993 0 0 0-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .72.73 1.2 1.39.91z"/></svg></span>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- ══════════════ PHASE 3 · GLOBAL FEED ══════════════ -->
+      <section id="feed-view" class="feed-view hidden">
+        <div class="feed-column">
+
+          <div class="composer glass">
+            <div id="composer-avatar" class="composer-avatar"></div>
+            <div class="composer-body">
+              <textarea id="post-content" class="input composer-input" rows="3" maxlength="2000"
+                placeholder="Share a phrase, a culture question, or a moment with learners across the ocean…"></textarea>
+              <div id="post-image-wrap" class="hidden">
+                <input id="post-image-url" class="input" type="url" placeholder="https://… image link (optional)" />
+              </div>
+              <div class="composer-actions">
+                <button id="btn-add-image" class="chip-btn" type="button">
+                  <span class="ic" style="width:15px;height:15px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
+                  Image
+                </button>
+                <div style="flex:1"></div>
+                <button id="btn-post" class="btn-primary btn-sm" type="button">Post 🌊</button>
+              </div>
+            </div>
+          </div>
+
+          <button id="new-posts-pill" class="new-posts-pill hidden" type="button">↑ New posts</button>
+
+          <div id="feed-list" class="feed-list"></div>
+          <div id="feed-loading" class="feed-loading hidden"><div class="spinner"></div></div>
+          <p id="feed-end" class="empty-note hidden">You've reached the bottom of the ocean. 🐠</p>
+          <div id="feed-sentinel"></div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Edit profile modal -->
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-card glass">
+      <h3>Edit profile</h3>
+      <label class="lbl">Username
+        <input id="pm-username" class="input" type="text" maxlength="20" autocomplete="off" />
+      </label>
+      <div class="field-row">
+        <label class="lbl">Native language
+          <select id="pm-native" class="input"></select>
+        </label>
+        <label class="lbl">Learning
+          <select id="pm-learning" class="input"></select>
+        </label>
+      </div>
+      <label class="lbl">Avatar URL
+        <input id="pm-avatar" class="input" type="url" placeholder="https://…" />
+      </label>
+      <label class="lbl">Bio
+        <textarea id="pm-bio" class="input" rows="3" maxlength="240" placeholder="A line or two about you…"></textarea>
+      </label>
+      <p id="pm-error" class="auth-error hidden"></p>
+      <div class="modal-actions">
+        <button id="pm-cancel" class="btn-ghost" type="button">Cancel</button>
+        <button id="pm-save" class="btn-primary btn-sm" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
