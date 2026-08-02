@@ -1,15 +1,14 @@
 /* ============================================================
-   LINK — Ocean-gloss messaging + global language-exchange feed
-   Phase 1 → Supabase client, glossy auth
-   Phase 2 → Realtime direct messaging engine (no statuses)
-   Phase 3 → Interpals/Facebook hybrid global feed
+   LINK — App Edition
+   Screen-based mobile web app (hash router):
+   #/home · #/explore · #/messages · #/chat/:id · #/profile
+   #/user/:id · #/compose · #/edit-profile
    ============================================================ */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-/* ════════════ PHASE 1 · Supabase connection ════════════ */
+/* ---------- Supabase connection ---------- */
 const SUPABASE_URL = 'https://pqohnoaeolojiixrzfey.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBxb2hub2Flb2xvamlpeHJ6ZmV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxMDYzMTQsImV4cCI6MjEwMDY4MjMxNH0.Uyz1VG6uPdxAkShmNFGOctOLJUJv3-sYt_FN9gw6Pao';
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const PAGE_SIZE = 10;
@@ -25,17 +24,16 @@ const $ = (id) => document.getElementById(id);
 const state = {
   user: null,
   profile: null,
-  view: 'messages',
   booted: false,
+  pendingCreds: null,     // kept in memory for the waiting room "I've confirmed" button
+  lastRoot: '#/home',
 
-  // messaging
-  contacts: [],
+  contacts: [],           // all users (+ _last message)
   activeContact: null,
-  seenIds: new Set(),      // message ids already rendered (dedupe realtime vs local)
-  bubbleEls: new Map(),    // message id → DOM row (for read-receipt updates)
-  unreadBy: new Map(),     // sender id → unread count
+  seenIds: new Set(),
+  bubbleEls: new Map(),
+  unreadBy: new Map(),
 
-  // feed
   feed: { page: 0, done: false, loading: false },
   myLikes: new Set(),
   likeCounts: new Map(),
@@ -44,14 +42,14 @@ const state = {
   channel: null,
 };
 
-/* ---------- Tiny utilities ---------- */
+/* ---------- Utilities ---------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
 function timeAgo(ts) {
   const s = (Date.now() - new Date(ts).getTime()) / 1000;
-  if (s < 60) return 'just now';
+  if (s < 60) return 'now';
   const m = s / 60; if (m < 60) return Math.floor(m) + 'm';
   const h = m / 60; if (h < 24) return Math.floor(h) + 'h';
   const d = h / 24; if (d < 7) return Math.floor(d) + 'd';
@@ -60,7 +58,7 @@ function timeAgo(ts) {
 
 const ICONS = {
   heart: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
-  chat:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>',
+  chat:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>',
 };
 const icon = (name, size = 18) => `<span class="ic" style="width:${size}px;height:${size}px">${ICONS[name]}</span>`;
@@ -73,18 +71,23 @@ function avatarHTML(user, size = 44) {
   return `<div class="avatar avatar-fallback" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px"><span>${esc(ch)}</span></div>`;
 }
 
-function tagsHTML(u) {
-  if (!u || (!u.native_language && !u.learning_language)) return '';
+function tagSpans(u) {
+  if (!u) return '';
   const n = u.native_language   ? `<span class="tag tag-native">Native: ${esc(u.native_language)}</span>` : '';
   const l = u.learning_language ? `<span class="tag tag-learning">Learning: ${esc(u.learning_language)}</span>` : '';
-  return `<div class="tags">${n}${l}</div>`;
+  return n + l;
+}
+
+function tagsHTML(u, center = false) {
+  if (!u || (!u.native_language && !u.learning_language)) return '';
+  return `<div class="tags${center ? ' center' : ''}">${tagSpans(u)}</div>`;
 }
 
 function langLine(u) {
   const bits = [];
-  if (u.native_language) bits.push('Native: ' + u.native_language);
-  if (u.learning_language) bits.push('Learning: ' + u.learning_language);
-  return bits.join(' · ');
+  if (u.native_language) bits.push(u.native_language);
+  if (u.learning_language) bits.push('→ ' + u.learning_language);
+  return bits.join(' ');
 }
 
 let toastTimer = null;
@@ -96,7 +99,77 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
 }
 
-/* ════════════ PHASE 1 · Authentication ════════════ */
+/* ════════════ ROUTER ════════════ */
+const SCREENS = ['home', 'explore', 'messages', 'chat', 'profile', 'user', 'compose', 'edit'];
+const ROOT_TABS = { home: 'nav-home', explore: 'nav-explore', messages: 'nav-messages', profile: 'nav-profile' };
+
+function go(hash) {
+  if (location.hash === hash) route();
+  else location.hash = hash;
+}
+
+function showScreen(name) {
+  SCREENS.forEach((s) => $('screen-' + s).classList.toggle('active', s === name));
+  // floating nav: visible on root tabs only
+  $('bottom-nav').classList.toggle('hidden', !(name in ROOT_TABS));
+  Object.values(ROOT_TABS).forEach((id) => $(id).classList.remove('active'));
+  if (name in ROOT_TABS) {
+    $(ROOT_TABS[name]).classList.add('active');
+    state.lastRoot = '#/' + name;
+  }
+  $('screens').scrollTop = 0;
+}
+
+async function route() {
+  if (!state.user) return;
+  const hash = location.hash || '#/home';
+  const seg = hash.replace(/^#\//, '').split('/');
+  const name = seg[0] || 'home';
+
+  switch (name) {
+    case 'home':
+      showScreen('home');
+      break;
+    case 'explore':
+      showScreen('explore');
+      renderExplore();
+      break;
+    case 'messages':
+      showScreen('messages');
+      renderConvos();
+      break;
+    case 'chat':
+      showScreen('chat');
+      await openChatById(seg[1]);
+      break;
+    case 'profile':
+      showScreen('profile');
+      loadMyProfile();
+      break;
+    case 'user':
+      showScreen('user');
+      await loadUserProfile(seg[1]);
+      break;
+    case 'compose':
+      showScreen('compose');
+      setTimeout(() => $('compose-input').focus(), 150);
+      break;
+    case 'edit-profile':
+      showScreen('edit');
+      fillEditForm();
+      break;
+    default:
+      go('#/home');
+  }
+}
+window.addEventListener('hashchange', route);
+
+document.querySelectorAll('#bottom-nav [data-go]').forEach((b) => {
+  b.addEventListener('click', () => go(b.dataset.go));
+});
+$('nav-fab').onclick = () => go('#/compose');
+
+/* ════════════ AUTH ════════════ */
 let authMode = 'signin';
 
 function setAuthMode(mode) {
@@ -145,18 +218,25 @@ $('auth-form').addEventListener('submit', async (e) => {
       });
       if (error) throw error;
 
-      // Remember so the profile row can be created at first session
       localStorage.setItem('link_pending_profile',
         JSON.stringify({ username, native_language: native, learning_language: learning }));
+      state.pendingCreds = { email, password };
 
       if (!data.session) {
-        authError('Account created! Confirm the email we sent, then sign in.', true);
-        setAuthMode('signin');
+        // Email confirmation is ON in Supabase → show the waiting room
+        $('wait-email').textContent = email;
+        $('wait-view').classList.remove('hidden');
+        $('auth-view').classList.add('hidden');
       }
-      // If a session exists, onAuthStateChange boots the app automatically.
+      // If a session came back, confirmation is OFF → onAuthStateChange boots the app.
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) {
+        if (/confirm/i.test(error.message)) {
+          throw new Error('This email isn\'t confirmed yet — tap the link in your inbox first (or resend from the sign-up waiting page).');
+        }
+        throw error;
+      }
     }
   } catch (err) {
     authError(err.message || String(err));
@@ -166,7 +246,54 @@ $('auth-form').addEventListener('submit', async (e) => {
   }
 });
 
-/* Create the users-row once per account (handles email-confirmation flows too). */
+/* ---- Waiting room ---- */
+$('btn-wait-signin').onclick = () => {
+  $('wait-view').classList.add('hidden');
+  $('auth-view').classList.remove('hidden');
+  setAuthMode('signin');
+};
+
+$('btn-confirmed').onclick = async () => {
+  const el = $('wait-error');
+  el.classList.add('hidden');
+  if (!state.pendingCreds) {
+    $('btn-wait-signin').click();
+    return;
+  }
+  const btn = $('btn-confirmed');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  const { error } = await supabase.auth.signInWithPassword(state.pendingCreds);
+  btn.disabled = false;
+  btn.textContent = "I've confirmed — dive in 🌊";
+  if (error) {
+    el.textContent = 'Not confirmed yet — tap the link in the email first, then try again.';
+    el.classList.remove('hidden');
+  }
+  // success → onAuthStateChange boots the app
+};
+
+let resendCooldown = 0;
+$('btn-resend').onclick = async () => {
+  if (resendCooldown > 0 || !state.pendingCreds) return;
+  const { error } = await supabase.auth.resend({ type: 'signup', email: state.pendingCreds.email });
+  const note = $('resend-note');
+  if (error) {
+    note.textContent = 'Could not resend: ' + error.message;
+    return;
+  }
+  resendCooldown = 60;
+  const btn = $('btn-resend');
+  btn.disabled = true;
+  const tick = setInterval(() => {
+    resendCooldown--;
+    note.textContent = resendCooldown > 0 ? `Email resent ✓ You can resend again in ${resendCooldown}s.` : '';
+    if (resendCooldown <= 0) { clearInterval(tick); btn.disabled = false; }
+  }, 1000);
+  note.textContent = 'Email resent ✓ You can resend again in 60s.';
+};
+
+/* ---------- Profile creation (once per account) ---------- */
 async function ensureProfile() {
   const { data, error } = await supabase
     .from('users').select('*').eq('id', state.user.id).maybeSingle();
@@ -196,11 +323,10 @@ async function ensureProfile() {
     }
     if (e2.code !== '23505') { console.warn('profile insert:', e2.message); break; }
   }
-  // Absolute fallback so the UI never crashes
   state.profile = state.profile || { id: state.user.id, username: base };
 }
 
-/* ════════════ Session boot / teardown ════════════ */
+/* ════════════ Boot / teardown ════════════ */
 supabase.auth.onAuthStateChange(async (_event, session) => {
   if (session?.user) await boot(session.user);
   else teardown();
@@ -212,17 +338,19 @@ async function boot(user) {
   state.booted = true;
   try {
     await ensureProfile();
-    renderSidebar();
+    renderChrome();
     await loadContacts();
     await refreshUnread();
     resetFeed();
-    loadFeedPage();                 // warm the first page so the tab switch is instant
+    loadFeedPage();
     subscribeRealtime();
   } catch (err) {
     console.error(err);
     toast('Setup hiccup: ' + (err.message || err));
   }
   showApp();
+  if (!location.hash) location.hash = '#/home';
+  route();
 }
 
 function teardown() {
@@ -237,43 +365,29 @@ function teardown() {
   state.myLikes.clear();
   state.likeCounts.clear();
   if (state.channel) { supabase.removeChannel(state.channel); state.channel = null; }
-  $('messages-view').classList.remove('chat-open');
-  $('app-view').classList.add('hidden');
+  $('app-layer').classList.add('hidden');
+  $('wait-view').classList.add('hidden');
+  $('auth-layer').classList.remove('hidden');
   $('auth-view').classList.remove('hidden');
 }
 
 function showApp() {
-  $('auth-view').classList.add('hidden');
-  $('app-view').classList.remove('hidden');
+  $('auth-layer').classList.add('hidden');
+  $('app-layer').classList.remove('hidden');
 }
 
-function renderSidebar() {
-  $('side-avatar').innerHTML = avatarHTML(state.profile, 46);
-  $('composer-avatar').innerHTML = avatarHTML(state.profile, 46);
-  $('side-username').textContent = '@' + (state.profile?.username || 'you');
-  $('side-tags').innerHTML = tagsHTML(state.profile);
+function renderChrome() {
+  $('teaser-avatar').innerHTML = avatarHTML(state.profile, 40);
+  $('compose-avatar').innerHTML = avatarHTML(state.profile, 44);
+  $('compose-name').textContent = state.profile?.username || '';
 }
 
-/* ---------- View switching ---------- */
-function showView(name) {
-  state.view = name;
-  $('messages-view').classList.toggle('hidden', name !== 'messages');
-  $('feed-view').classList.toggle('hidden', name !== 'feed');
-  $('nav-messages').classList.toggle('active', name === 'messages');
-  $('nav-feed').classList.toggle('active', name === 'feed');
-}
-$('nav-messages').onclick = () => showView('messages');
-$('nav-feed').onclick = () => showView('feed');
-$('btn-logout').onclick = () => supabase.auth.signOut();
-
-/* ════════════ PHASE 2 · Messaging engine ════════════
-   No statuses. No stories. Just people and messages. */
-
+/* ════════════ CONTACTS / PEOPLE ════════════ */
 async function loadContacts() {
   const me = state.user.id;
   const [{ data: users, error }, { data: recent }, { data: unread }] = await Promise.all([
     supabase.from('users')
-      .select('id,username,native_language,learning_language,avatar_url')
+      .select('id,username,native_language,learning_language,avatar_url,bio')
       .neq('id', me).order('username', { ascending: true }),
     supabase.from('messages')
       .select('sender_id,receiver_id,content,created_at')
@@ -287,7 +401,7 @@ async function loadContacts() {
   const lastMsg = new Map();
   (recent || []).forEach((m) => {
     const other = m.sender_id === me ? m.receiver_id : m.sender_id;
-    if (!lastMsg.has(other)) lastMsg.set(other, m);   // first hit = newest
+    if (!lastMsg.has(other)) lastMsg.set(other, m);
   });
 
   state.unreadBy = new Map();
@@ -298,67 +412,111 @@ async function loadContacts() {
   list.sort((a, b) => {
     const ta = a._last ? +new Date(a._last.created_at) : 0;
     const tb = b._last ? +new Date(b._last.created_at) : 0;
-    if (ta !== tb) return tb - ta;                    // active convos float to the top
+    if (ta !== tb) return tb - ta;
     return a.username.localeCompare(b.username);
   });
   state.contacts = list;
-  renderContacts();
+  refreshVisibleLists();
 }
 
-function renderContacts() {
-  const q = $('contact-search').value.trim().toLowerCase();
-  const ul = $('contact-list');
-  ul.innerHTML = '';
+function refreshVisibleLists() {
+  if ($('screen-explore').classList.contains('active')) renderExplore();
+  if ($('screen-messages').classList.contains('active')) renderConvos();
+}
+
+/* ---- EXPLORE (Interpals member discovery) ---- */
+function renderExplore() {
+  const q = $('explore-search').value.trim().toLowerCase();
+  const list = $('explore-list');
+  list.innerHTML = '';
   const matches = state.contacts.filter((c) => !q || c.username.toLowerCase().includes(q));
-  $('contacts-empty').classList.toggle('hidden', matches.length > 0);
+  $('explore-empty').classList.toggle('hidden', matches.length > 0);
 
   matches.forEach((c) => {
+    const row = document.createElement('div');
+    row.className = 'person-row';
+    row.innerHTML = `
+      ${avatarHTML(c, 52)}
+      <div class="person-meta">
+        <div class="person-name">${esc(c.username)}</div>
+        ${tagsHTML(c)}
+        ${c.bio ? `<div class="person-sub">${esc(c.bio)}</div>` : ''}
+      </div>
+      <div class="person-right">
+        <button class="chip-btn" type="button">${icon('chat', 14)} Message</button>
+      </div>`;
+    row.onclick = () => go('#/user/' + c.id);
+    row.querySelector('.chip-btn').onclick = (e) => { e.stopPropagation(); go('#/chat/' + c.id); };
+    list.appendChild(row);
+  });
+}
+$('explore-search').addEventListener('input', renderExplore);
+
+/* ---- MESSAGES (conversation list) ---- */
+function renderConvos() {
+  const q = $('msg-search').value.trim().toLowerCase();
+  const list = $('convo-list');
+  list.innerHTML = '';
+  const convos = state.contacts.filter((c) =>
+    (c._last || (state.unreadBy.get(c.id) || 0) > 0) &&
+    (!q || c.username.toLowerCase().includes(q)));
+  $('convo-empty').classList.toggle('hidden', convos.length > 0);
+
+  convos.forEach((c) => {
     const unreadN = state.unreadBy.get(c.id) || 0;
     const preview = c._last
       ? `${c._last.sender_id === state.user.id ? 'You: ' : ''}${c._last.content}`
       : langLine(c);
-    const li = document.createElement('li');
-    li.className = 'contact-item' + (state.activeContact?.id === c.id ? ' active' : '');
-    li.innerHTML = `
-      ${avatarHTML(c, 46)}
-      <div class="contact-meta">
-        <div class="contact-top">
-          <span class="contact-name">${esc(c.username)}</span>
-          ${c._last ? `<span class="contact-time">${timeAgo(c._last.created_at)}</span>` : ''}
-        </div>
-        <div class="contact-sub ${unreadN ? 'has-unread' : ''}">${esc(preview || 'Say hello 👋')}</div>
+    const row = document.createElement('div');
+    row.className = 'person-row';
+    row.innerHTML = `
+      ${avatarHTML(c, 52)}
+      <div class="person-meta">
+        <div class="person-name">${esc(c.username)}</div>
+        <div class="person-sub ${unreadN ? 'has-unread' : ''}">${esc(preview || 'Say hello 👋')}</div>
       </div>
-      ${unreadN ? `<span class="badge">${unreadN}</span>` : ''}`;
-    li.onclick = () => openChat(c);
-    ul.appendChild(li);
+      <div class="person-right">
+        ${c._last ? `<span class="person-time">${timeAgo(c._last.created_at)}</span>` : ''}
+        ${unreadN ? `<span class="badge">${unreadN}</span>` : ''}
+      </div>`;
+    row.onclick = () => go('#/chat/' + c.id);
+    list.appendChild(row);
   });
 }
-$('contact-search').addEventListener('input', renderContacts);
+$('msg-search').addEventListener('input', renderConvos);
+$('btn-new-chat').onclick = () => go('#/explore');
+$('btn-goto-explore').onclick = () => go('#/explore');
 
-async function openChat(contact) {
+/* ════════════ CHAT ════════════ */
+async function openChatById(id) {
+  if (!id || id === state.user.id) { go('#/messages'); return; }
+  let contact = state.contacts.find((x) => x.id === id);
+  if (!contact) {
+    const { data } = await supabase.from('users')
+      .select('id,username,native_language,learning_language,avatar_url,bio')
+      .eq('id', id).maybeSingle();
+    if (!data) { toast('That user seems to have drifted away.'); go('#/messages'); return; }
+    contact = { ...data, _last: null };
+  }
   state.activeContact = contact;
-  $('messages-view').classList.add('chat-open');
-  $('chat-empty').classList.add('hidden');
-  $('chat-header').classList.remove('hidden');
-  $('chat-messages').classList.remove('hidden');
-  $('chat-form').classList.remove('hidden');
-  $('ch-avatar').innerHTML = avatarHTML(contact, 44);
-  $('ch-name').textContent = contact.username;
-  $('ch-tags').innerHTML = tagsHTML(contact);
+
+  $('chat-avatar').innerHTML = avatarHTML(contact, 40);
+  $('chat-name').textContent = contact.username;
+  $('ch-tags').innerHTML = tagSpans(contact);
+  $('chat-userlink').onclick = () => go('#/user/' + contact.id);
 
   const box = $('chat-messages');
   box.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
   state.bubbleEls.clear();
-  renderContacts();
 
-  const me = state.user.id, c = contact.id;
+  const me = state.user.id;
   const { data, error } = await supabase
     .from('messages').select('*')
-    .or(`and(sender_id.eq.${me},receiver_id.eq.${c}),and(sender_id.eq.${c},receiver_id.eq.${me}))`)
+    .or(`and(sender_id.eq.${me},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${me}))`)
     .order('created_at', { ascending: false })
     .limit(300);
 
-  if (state.activeContact?.id !== c) return;   // user switched chats mid-flight
+  if (state.activeContact?.id !== contact.id) return;
   box.innerHTML = '';
   if (error) {
     box.innerHTML = `<p class="empty-note">Couldn't load messages: ${esc(error.message)}</p>`;
@@ -366,13 +524,14 @@ async function openChat(contact) {
   }
   (data || []).reverse().forEach((m) => appendBubble(m, { scroll: false }));
   if (!data?.length) {
-    box.innerHTML = `<div class="chat-hint glass">Say hello to ${esc(contact.username)} 👋</div>`;
+    box.innerHTML = `<div class="chat-hint">Say hello to ${esc(contact.username)} 👋</div>`;
   }
   scrollChatBottom(false);
   $('chat-input').focus();
   await markRead(contact.id);
   await refreshUnread();
 }
+$('chat-back').onclick = () => { state.activeContact = null; go('#/messages'); };
 
 function bubbleRow(m) {
   const mine = m.sender_id === state.user.id;
@@ -444,39 +603,10 @@ async function refreshUnread() {
   const badge = $('nav-msg-badge');
   badge.textContent = total;
   badge.classList.toggle('hidden', !total);
-  renderContacts();
+  if ($('screen-messages').classList.contains('active')) renderConvos();
 }
 
-$('btn-back').onclick = () => {
-  state.activeContact = null;
-  $('messages-view').classList.remove('chat-open');
-  $('chat-header').classList.add('hidden');
-  $('chat-messages').classList.add('hidden');
-  $('chat-form').classList.add('hidden');
-  $('chat-empty').classList.remove('hidden');
-  renderContacts();
-};
-
-/* Jump from the feed straight into a DM with the author. */
-function openChatWith(user) {
-  showView('messages');
-  let c = state.contacts.find((x) => x.id === user.id);
-  if (!c) {
-    c = {
-      id: user.id,
-      username: user.username || 'Explorer',
-      native_language: user.native_language || null,
-      learning_language: user.learning_language || null,
-      avatar_url: user.avatar_url || null,
-      _last: null,
-    };
-    state.contacts.unshift(c);
-    renderContacts();
-  }
-  openChat(c);
-}
-
-/* ════════════ Realtime (messages + feed) ════════════ */
+/* ════════════ REALTIME ════════════ */
 function subscribeRealtime() {
   if (state.channel) supabase.removeChannel(state.channel);
   state.channel = supabase
@@ -500,10 +630,11 @@ function scheduleContactReload() {
 async function onMsgInsert({ new: m }) {
   const me = state.user?.id;
   if (!me) return;
-  if (m.sender_id !== me && m.receiver_id !== me) return;  // not my conversation
-  if (state.seenIds.has(m.id)) return;                     // already rendered locally
+  if (m.sender_id !== me && m.receiver_id !== me) return;
+  if (state.seenIds.has(m.id)) return;
 
-  const appended = appendBubble(m);
+  const onChatScreen = $('screen-chat').classList.contains('active');
+  const appended = onChatScreen ? appendBubble(m) : false;
   if (m.receiver_id === me) {
     if (appended) await markRead(m.sender_id);
     await refreshUnread();
@@ -524,8 +655,7 @@ function onPostInsert({ new: p }) {
   pill.classList.remove('hidden');
 }
 
-/* ════════════ PHASE 3 · Global feed (Interpals × Facebook) ════════════ */
-
+/* ════════════ FEED (shared rendering) ════════════ */
 function resetFeed() {
   state.feed = { page: 0, done: false, loading: false };
   state.myLikes = new Set();
@@ -534,6 +664,18 @@ function resetFeed() {
   $('feed-list').innerHTML = '';
   $('new-posts-pill').classList.add('hidden');
   $('feed-end').classList.add('hidden');
+}
+
+async function hydrateLikes(posts) {
+  const ids = (posts || []).map((p) => p.id);
+  if (!ids.length) return;
+  const { data: likes } = await supabase
+    .from('post_likes').select('post_id,user_id').in('post_id', ids);
+  ids.forEach((id) => { if (!state.likeCounts.has(id)) state.likeCounts.set(id, 0); });
+  (likes || []).forEach((l) => {
+    state.likeCounts.set(l.post_id, (state.likeCounts.get(l.post_id) || 0) + 1);
+    if (state.user && l.user_id === state.user.id) state.myLikes.add(l.post_id);
+  });
 }
 
 async function loadFeedPage() {
@@ -557,41 +699,30 @@ async function loadFeedPage() {
     return;
   }
 
-  // Pull like counts + which of these I already liked
-  const ids = (posts || []).map((p) => p.id);
-  if (ids.length) {
-    const { data: likes } = await supabase
-      .from('post_likes').select('post_id,user_id').in('post_id', ids);
-    ids.forEach((id) => state.likeCounts.set(id, 0));
-    (likes || []).forEach((l) => {
-      state.likeCounts.set(l.post_id, (state.likeCounts.get(l.post_id) || 0) + 1);
-      if (l.user_id === state.user.id) state.myLikes.add(l.post_id);
-    });
-  }
-
+  await hydrateLikes(posts);
   const list = $('feed-list');
   (posts || []).forEach((p) => list.appendChild(postCard(p)));
   f.page++;
   if ((posts || []).length < PAGE_SIZE) {
     f.done = true;
-    if (f.page > 1 || state.contacts.length || true) $('feed-end').classList.remove('hidden');
+    if (posts?.length || f.page > 1) $('feed-end').classList.remove('hidden');
   }
   if (f.page === 1 && !(posts || []).length) {
     $('feed-end').classList.add('hidden');
-    list.innerHTML = `<div class="post glass empty-feed"><h3>The ocean is quiet…</h3><p>Be the first to say something to the world. 🌍</p></div>`;
+    list.innerHTML = `<div class="post glass empty-feed"><h3>The ocean is quiet…</h3><p>Be the first to say something to the world. Tap the ✏️ below!</p></div>`;
   }
   f.loading = false;
   $('feed-loading').classList.add('hidden');
 }
 
 function postCard(p) {
-  const mine = p.author_id === state.user.id;
+  const mine = state.user && p.author_id === state.user.id;
   const card = document.createElement('article');
   card.className = 'post glass';
   card.dataset.id = p.id;
   card.innerHTML = `
     <div class="post-head">
-      ${avatarHTML(p.users, 48)}
+      ${avatarHTML(p.users, 46)}
       <div class="post-head-meta">
         <button class="post-username ${mine ? '' : 'linkable'}" data-action="profile" type="button">${esc(p.users?.username || 'Explorer')}</button>
         ${tagsHTML(p.users)}
@@ -605,165 +736,242 @@ function postCard(p) {
     ${p.image_url ? `<div class="post-image"><img src="${esc(p.image_url)}" alt="" loading="lazy" /></div>` : ''}
     <div class="post-actions">
       <button class="like-btn ${state.myLikes.has(p.id) ? 'liked' : ''}" data-action="like" type="button" title="Like">
-        ${icon('heart', 16)}<span class="like-count">${state.likeCounts.get(p.id) || ''}</span>
+        ${icon('heart', 15)}<span class="like-count">${state.likeCounts.get(p.id) || ''}</span>
       </button>
       ${mine ? '' : `<button class="chip-btn" data-action="message" type="button">${icon('chat', 14)} Message</button>`}
     </div>`;
 
-  card.querySelector('[data-action="like"]').onclick = () => toggleLike(p.id, card);
+  card.querySelector('[data-action="like"]').onclick = () => toggleLike(p.id);
   card.querySelector('[data-action="delete"]')?.addEventListener('click', () => deletePost(p.id, card));
-  const author = { id: p.author_id, ...(p.users || {}) };
-  card.querySelector('[data-action="message"]')?.addEventListener('click', () => openChatWith(author));
-  if (!mine) card.querySelector('[data-action="profile"]').onclick = () => openChatWith(author);
+  card.querySelector('[data-action="message"]')?.addEventListener('click', () => go('#/chat/' + p.author_id));
+  card.querySelector('[data-action="profile"]').onclick =
+    () => go(mine ? '#/profile' : '#/user/' + p.author_id);
   const img = card.querySelector('.post-image img');
   if (img) img.onerror = () => img.closest('.post-image').remove();
   return card;
 }
 
-async function toggleLike(postId, card) {
+function repaintEverywhere(postId) {
+  document.querySelectorAll(`.post[data-id="${postId}"]`).forEach((card) => {
+    const btn = card.querySelector('.like-btn');
+    if (!btn) return;
+    btn.classList.toggle('liked', state.myLikes.has(postId));
+    btn.querySelector('.like-count').textContent = state.likeCounts.get(postId) || '';
+    btn.classList.remove('pop');
+    void btn.offsetWidth;
+    btn.classList.add('pop');
+  });
+}
+
+async function toggleLike(postId) {
   const wasLiked = state.myLikes.has(postId);
-  // optimistic update
   state.myLikes[wasLiked ? 'delete' : 'add'](postId);
   state.likeCounts.set(postId, Math.max(0, (state.likeCounts.get(postId) || 0) + (wasLiked ? -1 : 1)));
-  paintLike(card, postId);
+  repaintEverywhere(postId);
 
   const { error } = wasLiked
     ? await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', state.user.id)
     : await supabase.from('post_likes').insert({ post_id: postId, user_id: state.user.id });
 
-  if (error) {   // roll back
+  if (error) {
     state.myLikes[wasLiked ? 'add' : 'delete'](postId);
     state.likeCounts.set(postId, Math.max(0, (state.likeCounts.get(postId) || 0) + (wasLiked ? 1 : -1)));
-    paintLike(card, postId);
+    repaintEverywhere(postId);
     toast('Like failed: ' + error.message);
   }
-}
-
-function paintLike(card, postId) {
-  const btn = card.querySelector('.like-btn');
-  if (!btn) return;
-  btn.classList.toggle('liked', state.myLikes.has(postId));
-  btn.querySelector('.like-count').textContent = state.likeCounts.get(postId) || '';
-  btn.classList.remove('pop');
-  void btn.offsetWidth;   // restart the pop animation
-  btn.classList.add('pop');
 }
 
 async function deletePost(id, card) {
   if (!confirm('Delete this post?')) return;
   const { error } = await supabase.from('feed_posts').delete().eq('id', id);
   if (error) { toast('Delete failed: ' + error.message); return; }
-  card.classList.add('fade-out');
-  setTimeout(() => card.remove(), 240);
+  document.querySelectorAll(`.post[data-id="${id}"]`).forEach((c) => {
+    c.classList.add('fade-out');
+    setTimeout(() => c.remove(), 240);
+  });
 }
 
-$('btn-post').onclick = async () => {
-  const contentEl = $('post-content');
-  const imgEl = $('post-image-url');
-  const content = contentEl.value.trim();
-  const image_url = imgEl.value.trim();
+$('composer-teaser').onclick = () => go('#/compose');
+$('home-refresh').onclick = () => { resetFeed(); loadFeedPage(); toast('Refreshed 🌊'); };
+$('new-posts-pill').onclick = () => { resetFeed(); loadFeedPage(); $('screens').scrollTo({ top: 0, behavior: 'smooth' }); };
+
+/* Infinite scroll (rooted in the screens container) */
+const feedObserver = new IntersectionObserver(
+  (entries) => entries.forEach((en) => {
+    if (en.isIntersecting && $('screen-home').classList.contains('active')) loadFeedPage();
+  }),
+  { root: $('screens'), rootMargin: '600px' }
+);
+feedObserver.observe($('feed-sentinel'));
+
+/* ════════════ COMPOSE (stylus) ════════════ */
+$('compose-back').onclick = () => go(state.lastRoot || '#/home');
+
+$('btn-compose-image').onclick = () => {
+  $('compose-imgwrap').classList.toggle('hidden');
+  if (!$('compose-imgwrap').classList.contains('hidden')) $('compose-image-url').focus();
+};
+
+$('compose-image-url').addEventListener('input', () => {
+  const url = $('compose-image-url').value.trim();
+  const wrap = $('compose-preview');
+  if (!url) { wrap.classList.add('hidden'); return; }
+  $('compose-preview-img').src = url;
+  wrap.classList.remove('hidden');
+});
+$('compose-preview-img').onerror = () => $('compose-preview').classList.add('hidden');
+
+$('btn-compose-post').onclick = async () => {
+  const content = $('compose-input').value.trim();
+  const image_url = $('compose-image-url').value.trim();
   if (!content) { toast('Write something first 🌊'); return; }
 
-  const btn = $('btn-post');
+  const btn = $('btn-compose-post');
   btn.disabled = true;
   btn.textContent = 'Posting…';
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('feed_posts')
-    .insert({ author_id: state.user.id, content, image_url: image_url || null })
-    .select().single();
+    .insert({ author_id: state.user.id, content, image_url: image_url || null });
   btn.disabled = false;
   btn.textContent = 'Post 🌊';
 
   if (error) { toast('Post failed: ' + error.message); return; }
 
-  const post = {
-    ...data,
-    users: {
-      username: state.profile.username,
-      avatar_url: state.profile.avatar_url,
-      native_language: state.profile.native_language,
-      learning_language: state.profile.learning_language,
-    },
-  };
-  state.likeCounts.set(post.id, 0);
-  $('feed-list').querySelector('.empty-feed')?.remove();
-  $('feed-list').prepend(postCard(post));
-  contentEl.value = '';
-  imgEl.value = '';
-  $('post-image-wrap').classList.add('hidden');
-  toast('Posted to the world 🌍');
-};
-
-$('btn-add-image').onclick = () => $('post-image-wrap').classList.toggle('hidden');
-
-$('new-posts-pill').onclick = () => {
+  $('compose-input').value = '';
+  $('compose-image-url').value = '';
+  $('compose-imgwrap').classList.add('hidden');
+  $('compose-preview').classList.add('hidden');
   resetFeed();
   loadFeedPage();
-  $('feed-view').scrollTo({ top: 0, behavior: 'smooth' });
+  toast('Posted to the world 🌍');
+  go('#/home');
 };
 
-/* Infinite scroll */
-const feedObserver = new IntersectionObserver(
-  (entries) => entries.forEach((en) => en.isIntersecting && loadFeedPage()),
-  { rootMargin: '600px' }
-);
-feedObserver.observe($('feed-sentinel'));
+/* ════════════ PROFILES ════════════ */
+async function profileStats(id) {
+  const { data: posts } = await supabase.from('feed_posts').select('id').eq('author_id', id);
+  const ids = (posts || []).map((p) => p.id);
+  let likes = 0;
+  if (ids.length) {
+    const { count } = await supabase
+      .from('post_likes').select('id', { count: 'exact', head: true }).in('post_id', ids);
+    likes = count || 0;
+  }
+  return { posts: ids.length, likes };
+}
 
-/* ════════════ Profile modal ════════════ */
-function pmError(msg) {
-  const el = $('pm-error');
+async function profilePosts(id, containerId) {
+  const container = $(containerId);
+  container.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
+  const { data: posts, error } = await supabase
+    .from('feed_posts')
+    .select('*, users(username, avatar_url, native_language, learning_language)')
+    .eq('author_id', id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  container.innerHTML = '';
+  if (error) { container.innerHTML = `<p class="empty-note">${esc(error.message)}</p>`; return; }
+  if (!posts?.length) {
+    container.innerHTML = `<p class="empty-note">No posts yet.</p>`;
+    return;
+  }
+  await hydrateLikes(posts);
+  posts.forEach((p) => container.appendChild(postCard(p)));
+}
+
+async function loadMyProfile() {
+  const p = state.profile;
+  $('pf-avatar').innerHTML = avatarHTML(p, 96);
+  $('pf-name').textContent = p?.username || 'you';
+  $('pf-tags').innerHTML = tagSpans(p);
+  $('pf-bio').textContent = p?.bio || 'No bio yet — tap edit and tell the ocean who you are.';
+  const stats = await profileStats(state.user.id);
+  $('pf-posts-count').textContent = stats.posts;
+  $('pf-likes-count').textContent = stats.likes;
+  await profilePosts(state.user.id, 'pf-posts');
+}
+
+async function loadUserProfile(id) {
+  if (!id || id === state.user.id) { go('#/profile'); return; }
+  const { data: u } = await supabase
+    .from('users').select('*').eq('id', id).maybeSingle();
+  if (!u) { toast('That user seems to have drifted away.'); go(state.lastRoot); return; }
+  $('up-avatar').innerHTML = avatarHTML(u, 96);
+  $('up-name').textContent = u.username;
+  $('up-tags').innerHTML = tagSpans(u);
+  $('up-bio').textContent = u.bio || 'This explorer hasn\'t written a bio yet.';
+  $('btn-up-msg').onclick = () => go('#/chat/' + u.id);
+  const stats = await profileStats(u.id);
+  $('up-posts-count').textContent = stats.posts;
+  $('up-likes-count').textContent = stats.likes;
+  await profilePosts(u.id, 'up-posts');
+}
+$('up-back').onclick = () => go(state.lastRoot || '#/home');
+
+$('btn-signout').onclick = () => supabase.auth.signOut();
+$('btn-edit-profile').onclick = () => go('#/edit-profile');
+$('btn-edit-profile-2').onclick = () => go('#/edit-profile');
+
+/* ════════════ EDIT PROFILE ════════════ */
+function fillEditForm() {
+  $('ep-username').value = state.profile?.username || '';
+  $('ep-native').value = state.profile?.native_language || '';
+  $('ep-learning').value = state.profile?.learning_language || '';
+  $('ep-avatar').value = state.profile?.avatar_url || '';
+  $('ep-bio').value = state.profile?.bio || '';
+  updateEpPreview();
+  epError(null);
+}
+
+function updateEpPreview() {
+  $('ep-avatar-preview').innerHTML = avatarHTML(
+    { username: $('ep-username').value || '?', avatar_url: $('ep-avatar').value.trim() || null }, 44);
+}
+$('ep-avatar').addEventListener('input', updateEpPreview);
+$('ep-username').addEventListener('input', updateEpPreview);
+
+function epError(msg) {
+  const el = $('ep-error');
   if (!msg) { el.classList.add('hidden'); return; }
   el.textContent = msg;
   el.classList.remove('hidden');
 }
 
-function openProfileModal() {
-  $('pm-username').value = state.profile?.username || '';
-  $('pm-native').value = state.profile?.native_language || '';
-  $('pm-learning').value = state.profile?.learning_language || '';
-  $('pm-avatar').value = state.profile?.avatar_url || '';
-  $('pm-bio').value = state.profile?.bio || '';
-  pmError(null);
-  $('profile-modal').classList.remove('hidden');
-}
-$('btn-edit-profile').onclick = openProfileModal;
-$('pm-cancel').onclick = () => $('profile-modal').classList.add('hidden');
-$('profile-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'profile-modal') $('profile-modal').classList.add('hidden');
-});
+$('ep-back').onclick = () => go('#/profile');
 
-$('pm-save').onclick = async () => {
-  const username = $('pm-username').value.trim();
+$('ep-save').onclick = async () => {
+  const username = $('ep-username').value.trim();
   if (!/^\w{3,20}$/.test(username)) {
-    pmError('Username must be 3–20 letters, numbers or underscores.');
+    epError('Username must be 3–20 letters, numbers or underscores.');
     return;
   }
   const payload = {
     username,
-    native_language: $('pm-native').value || null,
-    learning_language: $('pm-learning').value || null,
-    avatar_url: $('pm-avatar').value.trim() || null,
-    bio: $('pm-bio').value.trim() || null,
+    native_language: $('ep-native').value || null,
+    learning_language: $('ep-learning').value || null,
+    avatar_url: $('ep-avatar').value.trim() || null,
+    bio: $('ep-bio').value.trim() || null,
   };
-  $('pm-save').disabled = true;
+  $('ep-save').disabled = true;
   const { data, error } = await supabase
     .from('users').update(payload).eq('id', state.user.id).select().single();
-  $('pm-save').disabled = false;
+  $('ep-save').disabled = false;
 
-  if (error) { pmError(error.code === '23505' ? 'That username is taken.' : error.message); return; }
+  if (error) { epError(error.code === '23505' ? 'That username is taken.' : error.message); return; }
   state.profile = data;
-  renderSidebar();
-  $('profile-modal').classList.add('hidden');
+  renderChrome();
+  loadContacts();           // refresh my row everywhere
   toast('Profile saved ✨');
+  go('#/profile');
 };
 
-/* ---------- Init ---------- */
+/* ════════════ Init ════════════ */
 function fillLangSelect(sel, placeholder) {
   sel.innerHTML = `<option value="">${placeholder}</option>` +
     LANGUAGES.map((l) => `<option value="${l}">${l}</option>`).join('');
 }
 fillLangSelect($('auth-native'), 'Native language…');
 fillLangSelect($('auth-learning'), 'Learning…');
-fillLangSelect($('pm-native'), '—');
-fillLangSelect($('pm-learning'), '—');
+fillLangSelect($('ep-native'), '—');
+fillLangSelect($('ep-learning'), '—');
 setAuthMode('signin');

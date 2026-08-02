@@ -1,66 +1,68 @@
-# 🌊 Link — Web Edition
+# 🌊 Link — Web Edition (App Mode)
 
-An ocean-gloss, glassmorphism web app that fuses two worlds:
+An ocean-gloss, mobile-app-style web app that fuses two worlds:
 
 - **Link Core** — realtime, person-to-person direct messaging (no statuses, no stories, no noise).
-- **Global Feed** — a Facebook-style scroll crossed with an Interpals community board, where every
-  post carries the author's language tags (`Native: Korean · Learning: English`).
+- **Global Feed** — a Facebook-style home feed crossed with an Interpals community board,
+  with language tags (`Native: Korean · Learning: English`) on every member and post.
 
-Built with vanilla HTML/CSS/JS + Supabase (Auth, Postgres, Realtime).
+Built with vanilla HTML/CSS/JS + Supabase (Auth, Postgres, Realtime). No build step.
+
+## Screens (hash-routed, back-button friendly)
+
+| Route | Screen |
+|---|---|
+| `#/home` | 🏠 FB-style newsfeed + composer teaser + infinite scroll + likes |
+| `#/explore` | 🧭 Interpals-style member discovery with language tags |
+| `#/messages` | 💬 Messenger-style conversation list with unread badges |
+| `#/chat/:id` | 💬 Full-screen live chat with read receipts (✓✓) |
+| `#/profile` | 👤 Your profile: avatar, bio, languages, stats, your posts |
+| `#/user/:id` | 👤 Anyone else's profile + Message button |
+| `#/compose` | ✏️ Stylus new-post screen (also the raised center FAB) |
+| `#/edit-profile` | ✏️ Edit username / languages / avatar / bio |
+
+Navigation is a **floating glass bottom bar** with a raised **stylus ✏️ compose button**.
+Sign-up shows a **waiting-room screen** when email confirmation is enabled
+(resend button with cooldown + "I've confirmed — dive in").
 
 ---
 
 ## Setup (≈ 3 minutes)
 
 ### 1. Create the database
-Supabase Dashboard → **SQL Editor** → New query → paste the full contents of
-[`schema.sql`](schema.sql) → **Run**. It creates the 4 tables, indexes, RLS policies,
-and turns on Realtime for live messages/posts.
+Supabase Dashboard → **SQL Editor** → paste [`schema.sql`](schema.sql) → **Run**.
+(Safe to re-run: adds RLS + realtime to existing tables.)
 
-### 2. (Recommended) Turn off email confirmation for instant sign-ups
-Supabase Dashboard → **Authentication → Providers → Email** → disable **Confirm email** → Save.
-*(If you leave it on, accounts work too — users just confirm via email before first sign-in,
-and their profile is created automatically on that first sign-in.)*
+### 2. Choose your sign-up email mode
+**Want the confirmation-email flow? (recommended for launch)**
+Authentication → **Sign In / Up** → Email → enable **Confirm email** → Save.
+New sign-ups now receive an email and land on the waiting-room screen until they confirm.
+⚠️ Supabase's built-in mailer is rate-limited (~2–3 emails/hour on free tier) — configure
+**Settings → Authentication → SMTP** (SendGrid/Resend/etc.) if you need more.
+
+**Want zero-friction testing?** Leave *Confirm email* **off** — accounts sign in instantly
+and the waiting room is skipped automatically. The app handles both modes.
 
 ### 3. Serve the app
-Browsers block ES-module + auth flows on `file://`, so serve the folder over HTTP:
-
 ```bash
 cd link-app
-python3 -m http.server 8000
-# open http://localhost:8000
+python3 -m http.server 8000   # → http://localhost:8000
 ```
-
-Or drop the folder on any static host (Netlify, Vercel, GitHub Pages, Cloudflare Pages).
-No build step. No environment variables — the Supabase URL + anon key already live in
-`app.js` (the anon key is public by design; RLS is what protects the data).
+Or host on GitHub Pages — see [`DEPLOY-GITHUB.md`](DEPLOY-GITHUB.md).
 
 ---
 
-## File map
-
-| File         | What's inside |
-|--------------|---------------|
-| `schema.sql` | Phase 1 — tables, indexes, RLS, realtime publication |
-| `index.html` | Phase 1 — shell: auth card, sidebar, messaging view, feed view, profile modal |
-| `style.css`  | Phase 1–3 — the full liquid-glass / ocean-droplet design system |
-| `app.js`     | Phase 1–3 — Supabase client, auth, realtime messaging engine, infinite feed, likes |
-
 ## Feature checklist
-
-- ✅ Email/password auth with username + native/learning language capture at sign-up
-- ✅ Glossy ocean aesthetic: animated gradient, glassmorphism, backdrop-blur, droplet sheens
-- ✅ Contact list with search, last-message previews, unread badges, recency ordering
-- ✅ Live chat (Supabase Realtime), read receipts (✓✓), liquid-cyan sender bubbles / frosted-white receiver bubbles
-- ✅ Global feed: infinite scroll (10/page), language tags, optional image URLs, likes, delete-own-post
-- ✅ "Message" button on any post → jumps straight into a DM with that author
-- ✅ "N new posts" pill via realtime inserts on `feed_posts`
-- ✅ Edit profile (username, languages, avatar URL, bio)
-- ✅ Responsive down to mobile (chat opens full-screen with a back button)
+- ✅ Floating bottom nav + stylus FAB (no sidebars, app-style)
+- ✅ Home feed with likes, image posts, "N new posts" realtime pill, infinite scroll
+- ✅ Explore: member cards with Native/Learning tags + bio + Message shortcut
+- ✅ Chats list with previews, timestamps, unread badges
+- ✅ Live chat: realtime delivery, read receipts, liquid-cyan / frosted-white bubbles
+- ✅ Profiles with post/like stats + per-user post history
+- ✅ Email-confirmation waiting room (resend + confirm retry)
+- ✅ Sign-out, edit profile with live avatar preview
 
 ## Troubleshooting
-
-- **Feed/people are empty and console shows 401/403** → you skipped section 5 of `schema.sql` (RLS).
-- **Messages don't arrive live** → section 6 of `schema.sql` adds the tables to the
-  `supabase_realtime` publication; also check Dashboard → Database → Replication.
-- **`duplicate key ... users_username_key`** → pick a different username (they're globally unique).
+- **No confirmation email arrives** → step 2 above (toggle + SMTP limits).
+- **Empty feed/people, 401/403 in console** → run `schema.sql` (RLS section).
+- **Messages not live** → Database → Replication should list `messages` + `feed_posts` (schema.sql §6 does this).
